@@ -60,14 +60,38 @@
 (def ^{:doc "Current stack depth of traced function calls." :private true :dynamic true}
       *trace-depth* 0)
 
+(def ^{:doc "Current recorded result of execution" :private false :dynamic true}
+      *result* )
+
 (def ^{:doc "Forms to ignore when tracing forms." :private true}
       ignored-form? '#{def quote var try monitor-enter monitor-exit})
 
-(defn ^{:private true} tracer
+(defn attach-trace-to-result [existing trace]
+  (cond
+   (= [] existing) [trace]
+   (= *trace-depth* (:trace-depth (last existing))) (conj existing trace)
+   :else [(assoc trace :children existing)]))
+
+(defn ^{:private false} tracer-record  
+  [trace]
+    (swap! *result* attach-trace-to-result trace))
+
+
+(defn ^{:private true :dynamic true} tracer
   "This function is called by trace. Prints to standard output, but
 may be rebound to do anything you like. 'name' is optional."
   [name value]
   (println (str "TRACE" (when name (str " " name)) ": " value)))
+
+(defn ^{:skip-wiki true} trace-record-fn-call
+  "Traces a single call to a function f with args. 'name' is the
+symbol name of the function."
+  [name f args]
+  (let [id (gensym "t")]    
+    (let [value (binding [*trace-depth* (inc *trace-depth*)]
+                  (apply f args))]
+      (tracer {:id id :name name :args args :result value :trace-depth *trace-depth*})
+      value)))
 
 (defn trace
   "Sends name (optional) and value to the tracer function, then
@@ -83,7 +107,7 @@ affecting the result."
   []
   (apply str (take *trace-depth* (repeat "| "))))
 
-(defn ^{:skip-wiki true} trace-fn-call
+(defn ^{:skip-wiki true :dynamic true} trace-fn-call
   "Traces a single call to a function f with args. 'name' is the
 symbol name of the function."
   [name f args]
@@ -120,6 +144,14 @@ such as clojure.core/+"
                                 (fn [& args#]
                                   (trace-fn-call '~fname f# args#)))))]
      ~@exprs))
+
+(defmacro trace-record [fnames & exprs]
+  "same as dotrace, but returns a map containing the expression result in :result and the execution trace in :trace, a map containg a datastructure representing the trace of the execution"
+  `(binding [*result* (atom [])
+             trace-fn-call trace-record-fn-call
+             tracer tracer-record]
+     (zipmap [ :result  :trace] [ (dotrace ~fnames ~@exprs)  @*result*]) ))
+
 
 (declare trace-form)
 (defmulti trace-special-form (fn [form] (first form)))
