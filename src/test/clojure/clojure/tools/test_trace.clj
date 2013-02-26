@@ -82,4 +82,25 @@
 (deftest istraceable
   (is (traceable? 'trace.test.namesp/bar)))
 
+(defn collect-names-from-trace "utility function to walk trace" [collected-names trace-result]
+  (if
+      (list? trace-result) (map (partial work collected-names)  trace-result)
+      (if (:children trace-result)
+        (conj collected-names (collect-names-from-trace collected-names (:children trace-result))  (:name trace-result) )
+        (conj collected-names (:name trace-result)))))
+
+(defn ^{:dynamic true} level-2 [] "a")
+(defn ^{:dynamic true} level-1a [] (level-2))
+(defn ^{:dynamic true} level-1b [] (do (level-2) (level-2)))
+(defn ^{:dynamic true} level-0 [] (do (level-1a) (level-1b)))
+
+
+
+(deftest isrecorded
+  (is (= '(level-2 level-2 level-1b level-2 level-1a level-0) (->> (trace-record [level-0 level-1a level-1b level-2] (level-0))
+                             :trace
+                             first
+                             (collect-names-from-trace [])
+                             flatten))))
+
 (run-tests)

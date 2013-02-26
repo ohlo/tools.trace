@@ -40,42 +40,42 @@
 ;;  * supported doc strings
 ;;
 ;;  * added a trace-form macro, from Jonathan Fischer
-;; 
+;;
 ;;  December 3, 2008:
-;; 
+;;
 ;;  * replaced *trace-out* with tracer
-;; 
+;;
 ;;  * made trace a function instead of a macro
 ;;  (suggestion from Stuart Halloway)
-;; 
+;;
 ;;  * added trace-fn-call
-;; 
+;;
 ;;  June 9, 2008: first version
 ;;;
 (ns ^{:author "Stuart Sierra, Michel Salim, Luc Préfontaine, Jonathan Fischer Friberg, Michał Marczyk, Don Jackson"
       :doc "This file defines simple tracing macros to help you see what your code is doing."}
-     clojure.tools.trace
+  clojure.tools.trace
   (:use [clojure.pprint]))
 
 (def ^{:doc "Current stack depth of traced function calls." :private true :dynamic true}
-      *trace-depth* 0)
+  *trace-depth* 0)
 
 (def ^{:doc "Current recorded result of execution" :private false :dynamic true}
-      *result* )
+  *trace-result* )
 
 (def ^{:doc "Forms to ignore when tracing forms." :private true}
-      ignored-form? '#{def quote var try monitor-enter monitor-exit})
+  ignored-form? '#{def quote var try monitor-enter monitor-exit})
 
-(defn attach-trace-to-result [existing trace]
+(defn attach-to-trace-result [existing trace]  
   (cond
-   (= [] existing) [trace]
-   (= *trace-depth* (:trace-depth (last existing))) (conj existing trace)
-   :else [(assoc trace :children existing)]))
+   (empty? existing)       (conj existing (list trace))
+   (= (:trace-depth trace) (:trace-depth (ffirst existing))) (conj (rest existing) (conj (first existing) trace))
+   (> (:trace-depth trace) (:trace-depth (ffirst existing))) (conj  existing (list trace))
+   :else                   (attach-to-trace-result (rest existing)  (assoc trace :children (first existing)))))
 
-(defn ^{:private false} tracer-record  
-  [trace]
-    (swap! *result* attach-trace-to-result trace))
-
+(defn ^{:private false} tracer-record
+  [trace]  
+  (swap! *trace-result* attach-to-trace-result trace))
 
 (defn ^{:private true :dynamic true} tracer
   "This function is called by trace. Prints to standard output, but
@@ -87,7 +87,7 @@ may be rebound to do anything you like. 'name' is optional."
   "Traces a single call to a function f with args. 'name' is the
 symbol name of the function."
   [name f args]
-  (let [id (gensym "t")]    
+  (let [id (gensym "t")]
     (let [value (binding [*trace-depth* (inc *trace-depth*)]
                   (apply f args))]
       (tracer {:id id :name name :args args :result value :trace-depth *trace-depth*})
@@ -147,11 +147,10 @@ such as clojure.core/+"
 
 (defmacro trace-record [fnames & exprs]
   "same as dotrace, but returns a map containing the expression result in :result and the execution trace in :trace, a map containg a datastructure representing the trace of the execution"
-  `(binding [*result* (atom [])
+  `(binding [*trace-result* (atom (list))
              trace-fn-call trace-record-fn-call
              tracer tracer-record]
-     (zipmap [ :result  :trace] [ (dotrace ~fnames ~@exprs)  @*result*]) ))
-
+     (zipmap [ :result  :trace] [ (dotrace ~fnames ~@exprs)  @*trace-result*])))
 
 (declare trace-form)
 (defmulti trace-special-form (fn [form] (first form)))
@@ -163,17 +162,17 @@ such as clojure.core/+"
               (map (fn [[sym value]]
                      `[~sym (trace-forms ~value)]) (partition 2 bindings)))))
 
- ;; Trace the let form, its bindings then the forms in its body.
+;; Trace the let form, its bindings then the forms in its body.
 (defmethod trace-special-form
   'let* [[_ bindings & body]]
   `(let* ~(trace-bindings bindings)
-     (trace-forms ~@body)))
+         (trace-forms ~@body)))
 
 ;; Trace the loop form, its bindings then the forms in its body.
-(defmethod trace-special-form 
+(defmethod trace-special-form
   'loop* [[_ bindings & body]]
   `(loop* ~(trace-bindings bindings)
-     (trace-forms ~@body)))
+          (trace-forms ~@body)))
 
 ;; Trace the new form, mainly its arguments.
 (defmethod trace-special-form
@@ -201,10 +200,10 @@ such as clojure.core/+"
   "Trace the given data structure by tracing individual values."
   [v]
   (cond
-    (vector? v) `(vector ~@(map trace-form v))
-    (map? v) `(into {} ~(vec (map trace-value v)))
-    (set? v) `(into #{} ~(vec (map trace-form v)))
-    :else v))
+   (vector? v) `(vector ~@(map trace-form v))
+   (map? v) `(into {} ~(vec (map trace-value v)))
+   (set? v) `(into #{} ~(vec (map trace-form v)))
+   :else v))
 
 (defn ^{:private true} recurs?
   "Test if the given form contains a recur call."
@@ -235,18 +234,18 @@ such as clojure.core/+"
           sform)))
     (trace-value form)))
 
-(defn ^{:skip-wiki true} trace-compose-exception 
+(defn ^{:skip-wiki true} trace-compose-exception
   "Re-create a new exception with a composed message from the given exception
    and the message to be added. The exception stack trace is kept at a minimum."
   [^Exception exception ^String message]
-  (let [klass  (class exception) 
+  (let [klass  (class exception)
         previous-msg (.getMessage exception)
         composed-msg(str previous-msg (if-not (.endsWith previous-msg "\n") "\n") message (if-not (.endsWith message "\n") "\n"))
         ctor (.getConstructor klass (into-array [java.lang.String]))
         new-exception ^Exception (cast klass (.newInstance ctor (into-array String [composed-msg])))
         new-stack-trace (into-array java.lang.StackTraceElement [(aget (.getStackTrace exception) 0)])
         _ (.setStackTrace new-exception new-stack-trace)]
-     new-exception))
+    new-exception))
 
 (defn ^{:skip-wiki true} trace-form
   "Trace the given form avoiding try catch when recur is present in the form."
@@ -319,7 +318,7 @@ such as clojure.core/+"
   of the arguments, replacing the traced functions with the original,
   untraced versions."
   [& vs]
- `(do ~@(for [x vs] `(untrace-var* (quote ~x)))))
+  `(do ~@(for [x vs] `(untrace-var* (quote ~x)))))
 
 (defn ^{:skip-wiki true} trace-ns*
   "Replaces each function from the given namespace with a version wrapped
@@ -337,7 +336,7 @@ such as clojure.core/+"
 (defmacro trace-ns
   "Trace all fns in the given name space."
   [ns]
-  `(trace-ns* ~ns)) 
+  `(trace-ns* ~ns))
 
 (defn ^{:skip-wiki true} untrace-ns*
   "Reverses the effect of trace-var / trace-vars / trace-ns for the
@@ -346,7 +345,7 @@ such as clojure.core/+"
   [ns]
   (let [ns-fns (->> ns the-ns ns-interns vals)]
     (doseq [f ns-fns]
-          (untrace-var* f))))
+      (untrace-var* f))))
 
 (defmacro untrace-ns
   "Untrace all fns in the given name space."
@@ -358,11 +357,9 @@ such as clojure.core/+"
   [v]
   (let [^clojure.lang.Var v (if (var? v) v (resolve v))]
     (-> v meta ::traced nil? not)))
- 
+
 (defn traceable?
   "Returns true if the given var can be traced, false otherwise"
   [v]
   (let [^clojure.lang.Var v (if (var? v) v (resolve v))]
     (and (ifn? @v) (-> v meta :macro not))))
-
-
