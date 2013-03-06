@@ -4,7 +4,7 @@
   [:require [clojure.string :as s]])
 
 (defn ^{:private true}
-       cleanup
+  cleanup
   "Remove variable output from the trace output and replace end of lines by |"
   [s]
   (s/replace (s/replace s #"t[0-9]+:" "t:#") #"\n" "|"))
@@ -28,22 +28,22 @@
 
 (deftest test-with-docstring
   (is (= (.endsWith ^String (cleanup (:doc (meta (var fn-a)))) "fn-a Doc string") true)
-  (is (= (cleanup (with-out-str (fn-a 1 2 3))) "TRACE t:# (fn-a 1 2 3)|TRACE t:# => 6|"))))
+      (is (= (cleanup (with-out-str (fn-a 1 2 3))) "TRACE t:# (fn-a 1 2 3)|TRACE t:# => 6|"))))
 
 (deftest test-no-docstring
   (is (= (cleanup (with-out-str (fn-b 1 2 3))) "TRACE t:# (fn-b 1 2 3)|TRACE t:# => 6|")))
 
 (deftest test-trace-form
   (is (thrown-with-msg? ArithmeticException #"Divide by zero\n  Form failed: \(/ 9 a\)\n  Form failed: \(let\* \[a 0 b \(/ 9 a\)\] b\)\n  Form failed: \(let \[a 0 b \(/ 9 a\)\] b\)"
-                        (trace-forms (let [a 0 b (/ 9 a)] b)))))
+        (trace-forms (let [a 0 b (/ 9 a)] b)))))
 
 (deftest test-fn-form
   (is (thrown-with-msg? ArithmeticException #"Divide by zero\n  Form failed: \(\(fn \[\] \(let \[d \(/ 3 0\)\] d\)\)\)"
-                        (fn-fn 1 2 3))))
+        (fn-fn 1 2 3))))
 
 (deftest test-maps
   (is (thrown-with-msg? ArithmeticException #"Divide by zero\n  Form failed: \(/ 3 0\)\n  Form failed: \{:a 1, :b \(/ 3 0\)\}"
-                        (trace-forms {:a 1 :b (/ 3 0)}))))
+        (trace-forms {:a 1 :b (/ 3 0)}))))
 
 (def trace-ns-test-namespace (create-ns 'trace.test.namesp))
 
@@ -92,15 +92,14 @@
 (defn ^{:dynamic true} level-2 [] "a")
 (defn ^{:dynamic true} level-1a [] (level-2))
 (defn ^{:dynamic true} level-1b [] (do (level-2) (level-2)))
-(defn ^{:dynamic true} level-0 [] (do (level-1a) (level-1b)))
-
-
+(defn ^{:dynamic true} level-0 [] (do (level-1a) (level-1b) (level-2)))
 
 (deftest isrecorded
-  (is (= '(level-2 level-2 level-1b level-2 level-1a level-0) (->> (trace-record [level-0 level-1a level-1b level-2] (level-0))
-                             :trace
-                             first
-                             (collect-names-from-trace [])
-                             flatten))))
+  (is (= '(level-2 level-2 level-1b level-2 level-1a level-0)
+         (->> (trace-record [level-0 level-1a level-1b level-2] (level-0))
+              :trace
+              first
+              (collect-names-from-trace [])
+              flatten))))
 
 (run-tests)

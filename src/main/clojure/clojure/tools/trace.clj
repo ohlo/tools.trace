@@ -68,10 +68,11 @@
 
 (defn attach-to-trace-result [existing trace]  
   (cond
-   (empty? existing)       (conj existing (list trace))
+   (empty? existing)                                         (conj existing (list trace))
    (= (:trace-depth trace) (:trace-depth (ffirst existing))) (conj (rest existing) (conj (first existing) trace))
    (> (:trace-depth trace) (:trace-depth (ffirst existing))) (conj  existing (list trace))
-   :else                   (attach-to-trace-result (rest existing)  (assoc trace :children (first existing)))))
+   :else                                                     (attach-to-trace-result (rest existing)
+                                                                                     (assoc trace :children (first existing)))))
 
 (defn ^{:private false} tracer-record
   [trace]  
@@ -87,10 +88,10 @@ may be rebound to do anything you like. 'name' is optional."
   "Traces a single call to a function f with args. 'name' is the
 symbol name of the function."
   [name f args]
-  (let [id (gensym "t")]
+  (let [id (hash f)]
     (let [value (binding [*trace-depth* (inc *trace-depth*)]
                   (apply f args))]
-      (tracer {:id id :name name :args args :result value :trace-depth *trace-depth*})
+      (tracer {:id id :name (str name) :args args :result value :trace-depth *trace-depth*})
       value)))
 
 (defn trace
